@@ -1,0 +1,40 @@
+name: Generate report
+
+on:
+  workflow_dispatch:
+
+permissions:
+  pages: write
+  id-token: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release
+      - run: git clone https://github.com/rust-lang/rust.git rust
+
+      - name: Determine range
+        id: range
+        run: |
+          cd rust
+          from=$(git rev-list --max-parents=0 HEAD | tail -1)
+          to=$(git tag -l | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          echo "from=$from" >> "$GITHUB_OUTPUT"
+          echo "to=$to" >> "$GITHUB_OUTPUT"
+
+      - run: |
+          ./target/release/gitat diff rust "${{ steps.range.outputs.from }}" "${{ steps.range.outputs.to }}" --output web
+          mkdir public
+          mv *.html public/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+      - id: deployment
+        uses: actions/deploy-pages@v4

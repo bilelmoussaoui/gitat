@@ -1,0 +1,6 @@
+/target
+*.json
+*.html
+!/src/web/*.html
+*.toml
+!/Cargo.toml
