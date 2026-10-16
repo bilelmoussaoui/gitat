@@ -116,6 +116,9 @@ struct CommitMeta {
     refs: Vec<CommitRef>,
     tree_id: ObjectId,
     parent_tree_id: Option<ObjectId>,
+    /// No parents at all, so it's diffed against the empty tree. Not the same as a missing
+    /// `parent_tree_id`, which also happens when the parent isn't available (shallow clones).
+    is_root: bool,
 }
 
 struct DiffResult {
@@ -156,6 +159,7 @@ fn extract_commit_meta(repo: &gix::Repository, id: ObjectId) -> Result<CommitMet
     }
 
     let tree_id = commit.tree_id().context("failed to get tree id")?.detach();
+    let is_root = commit.parent_ids().next().is_none();
     let parent_tree_id = commit
         .parent_ids()
         .next()
@@ -175,6 +179,7 @@ fn extract_commit_meta(repo: &gix::Repository, id: ObjectId) -> Result<CommitMet
         refs,
         tree_id,
         parent_tree_id,
+        is_root,
     })
 }
 
@@ -619,15 +624,20 @@ fn compute_diff(
         file_diffs: Vec::new(),
     };
 
-    let Some(parent_tree_id) = meta.parent_tree_id else {
-        return result;
-    };
-
-    let Ok(parent_obj) = repo.find_object(parent_tree_id) else {
-        return result;
-    };
-    let Ok(parent_tree) = parent_obj.try_into_tree() else {
-        return result;
+    let parent_tree = match meta.parent_tree_id {
+        Some(id) => match repo
+            .find_object(id)
+            .ok()
+            .and_then(|o| o.try_into_tree().ok())
+        {
+            Some(tree) => tree,
+            None => return result,
+        },
+        // A root commit introduces everything in its tree.
+        None if meta.is_root => repo.empty_tree(),
+        // The parent exists but isn't available (e.g. a shallow clone's boundary): diffing
+        // against nothing would count the whole tree as this commit's work, so skip it.
+        None => return result,
     };
 
     let Ok(tree_obj) = repo.find_object(meta.tree_id) else {
@@ -854,5 +864,34 @@ mod collect_tests {
         let stats = collect(repo.path(), "", "tip", None, tip, |_| {}).unwrap();
         assert_eq!(stats.total_commits, 2);
         assert_eq!(stats.from_commit_id, "");
+        // The root commit's lines count too (diffed against the empty tree).
+        assert_eq!(stats.total_additions, 2);
+        assert_eq!(stats.authors["alice@example.org"].additions, 1);
+        assert_eq!(stats.files["f"].change_count, 2);
+    }
+
+    #[test]
+    fn shallow_boundary_is_not_a_root() {
+        let repo = TestRepo::new();
+        repo.commit(&[("f", "1\n2\n3\n")], "one", ALICE, "2024-01-10T10:00:00Z");
+        repo.commit(
+            &[("f", "1\n2\n3\n4\n")],
+            "two",
+            ALICE,
+            "2024-02-10T10:00:00Z",
+        );
+        repo.commit(
+            &[("f", "1\n2\n3\n4\n5\n")],
+            "three",
+            BOB,
+            "2024-03-10T10:00:00Z",
+        );
+        let clone = repo.shallow_clone(2);
+        let tip = clone.rev("HEAD");
+
+        let stats = collect(clone.path(), "", "HEAD", None, tip, |_| {}).unwrap();
+        assert_eq!(stats.total_commits, 2);
+        // "two"'s parent is missing, not absent: its whole tree must not count as added.
+        assert_eq!(stats.total_additions, 1);
     }
 }

@@ -21,6 +21,19 @@ impl TestRepo {
         repo
     }
 
+    /// `git clone --depth <depth>` of this repo: its oldest commit has parents that aren't there.
+    pub fn shallow_clone(&self, depth: u32) -> TestRepo {
+        let clone = TestRepo {
+            dir: tempfile::tempdir().unwrap(),
+        };
+        let url = format!("file://{}", self.path().display());
+        clone.git(
+            &["clone", "-q", "--depth", &depth.to_string(), &url, "."],
+            &[],
+        );
+        clone
+    }
+
     pub fn path(&self) -> &Path {
         self.dir.path()
     }

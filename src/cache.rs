@@ -6,6 +6,10 @@ use gix::ObjectId;
 
 use crate::stats::RepoStats;
 
+/// Bump whenever collection changes what it computes for the same commits, so stale
+/// results aren't served from the cache.
+const CACHE_VERSION: u32 = 2;
+
 fn cache_path(
     repo_path: &Path,
     from_id: Option<ObjectId>,
@@ -13,7 +17,10 @@ fn cache_path(
 ) -> Option<std::path::PathBuf> {
     let canonical = repo_path.canonicalize().ok()?;
     let from_id = from_id.map(|id| id.to_string()).unwrap_or_default();
-    let key = format!("{}\n{from_id}\n{to_id}", canonical.to_string_lossy());
+    let key = format!(
+        "{CACHE_VERSION}\n{}\n{from_id}\n{to_id}",
+        canonical.to_string_lossy()
+    );
     let hash = simple_hash(key.as_bytes());
     let dir = dirs::cache_dir()?.join("gitat");
     Some(dir.join(format!("{hash}.json")))
