@@ -4,6 +4,8 @@ mod combine;
 mod config;
 mod revspec;
 mod stats;
+#[cfg(test)]
+mod test_util;
 mod web;
 
 use std::io::Write;

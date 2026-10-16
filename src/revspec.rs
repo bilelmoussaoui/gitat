@@ -86,3 +86,98 @@ pub fn resolve_to(repo: &gix::Repository, to: &str, branch: &str) -> Result<Obje
         None => peel_commit(repo, branch),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_util::{ALICE, TestRepo};
+
+    /// main: c1 (Jan 10) - c2 (Feb 10) - c3 (Mar 10) - c4 (Apr 10), all at 12:00 UTC.
+    fn linear() -> (TestRepo, [ObjectId; 4]) {
+        let repo = TestRepo::new();
+        let ids = ["2024-01-10", "2024-02-10", "2024-03-10", "2024-04-10"]
+            .map(|d| repo.commit(&[("f", d)], d, ALICE, &format!("{d}T12:00:00Z")));
+        (repo, ids)
+    }
+
+    #[test]
+    fn refs_resolve_as_is() {
+        let (repo, [_, c2, c3, c4]) = linear();
+        repo.tag("v1");
+        let r = repo.open();
+        assert_eq!(resolve_to(&r, "v1", "HEAD").unwrap(), c4);
+        assert_eq!(resolve_to(&r, "HEAD~1", "HEAD").unwrap(), c3);
+        assert_eq!(resolve_from(&r, "HEAD~2", "HEAD").unwrap(), Some(c2));
+    }
+
+    #[test]
+    fn a_ref_wins_over_a_date() {
+        let (repo, [_, _, c3, _]) = linear();
+        repo.checkout(&[&c3.to_string()]);
+        repo.tag("2024-01-01");
+        repo.checkout(&["main"]);
+        let r = repo.open();
+        assert_eq!(resolve_to(&r, "2024-01-01", "main").unwrap(), c3);
+    }
+
+    #[test]
+    fn to_date_picks_first_commit_at_or_after() {
+        let (repo, [_, c2, _, c4]) = linear();
+        let r = repo.open();
+        assert_eq!(resolve_to(&r, "2024-02-01", "HEAD").unwrap(), c2);
+        assert_eq!(
+            resolve_to(&r, "2024-02-10 12:00:00 +0000", "HEAD").unwrap(),
+            c2
+        );
+        // Past the latest commit: the whole branch.
+        assert_eq!(resolve_to(&r, "2030-01-01", "HEAD").unwrap(), c4);
+        assert_eq!(resolve_to(&r, "1 week ago", "HEAD").unwrap(), c4);
+    }
+
+    #[test]
+    fn from_date_keeps_the_commit_on_that_date() {
+        let (repo, [c1, _, _, _]) = linear();
+        let r = repo.open();
+        // c2 is the first commit on/after Feb 1st, so its parent is what gets excluded.
+        assert_eq!(resolve_from(&r, "2024-02-01", "HEAD").unwrap(), Some(c1));
+        // Before all history: nothing excluded.
+        assert_eq!(resolve_from(&r, "2023-01-01", "HEAD").unwrap(), None);
+    }
+
+    #[test]
+    fn from_date_after_history_is_an_error() {
+        let (repo, _) = linear();
+        let err = resolve_from(&repo.open(), "2030-01-01", "HEAD").unwrap_err();
+        assert!(err.to_string().contains("at or after"), "{err}");
+    }
+
+    #[test]
+    fn bare_numbers_and_garbage_are_not_dates() {
+        let (repo, _) = linear();
+        let r = repo.open();
+        for spec in ["2024", "nonsense"] {
+            let err = resolve_to(&r, spec, "HEAD").unwrap_err();
+            assert!(
+                err.to_string().contains("failed to resolve"),
+                "{spec}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn dates_follow_first_parent_history() {
+        let repo = TestRepo::new();
+        let c1 = repo.commit(&[("f", "1")], "c1", ALICE, "2024-01-10T12:00:00Z");
+        repo.checkout(&["-b", "feature"]);
+        let side = repo.commit(&[("g", "1")], "side", ALICE, "2024-02-20T12:00:00Z");
+        repo.checkout(&["main"]);
+        let c2 = repo.commit(&[("f", "2")], "c2", ALICE, "2024-03-10T12:00:00Z");
+        repo.merge("feature", "2024-03-15T12:00:00Z");
+        let r = repo.open();
+        // The side-branch commit (Feb 20) only reached main on Mar 15, so it isn't picked.
+        assert_eq!(resolve_to(&r, "2024-02-15", "main").unwrap(), c2);
+        assert_eq!(resolve_from(&r, "2024-02-15", "main").unwrap(), Some(c1));
+        // But it is when walking the feature branch itself.
+        assert_eq!(resolve_to(&r, "2024-02-15", "feature").unwrap(), side);
+    }
+}

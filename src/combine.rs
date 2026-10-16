@@ -106,3 +106,121 @@ pub fn merge(files: &[impl AsRef<Path>]) -> Result<RepoStats> {
 
     Ok(out)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::stats::BusFactorEntry;
+
+    fn export(dir: &Path, project: &str, stats: RepoStats) -> std::path::PathBuf {
+        let path = dir.join(format!("{project}.json"));
+        let export = ProjectStats {
+            project: project.to_string(),
+            stats,
+        };
+        fs::write(&path, serde_json::to_string(&export).unwrap()).unwrap();
+        path
+    }
+
+    fn author(name: &str, email: &str, commits: u64, is_bot: bool) -> AuthorStats {
+        AuthorStats {
+            name: name.to_string(),
+            email: email.to_string(),
+            commits,
+            is_bot,
+            ..Default::default()
+        }
+    }
+
+    fn project(authors: Vec<AuthorStats>, file: &str, commits: u64, hour: usize) -> RepoStats {
+        let mut stats = RepoStats {
+            total_commits: commits,
+            total_additions: commits * 10,
+            ..Default::default()
+        };
+        stats.commits_by_hour[hour] = commits;
+        stats.commit_size_distribution[0] = commits;
+        for a in authors {
+            stats.authors.insert(a.email.clone(), a);
+        }
+        stats.files.insert(
+            file.to_string(),
+            FileStats {
+                path: file.to_string(),
+                ..Default::default()
+            },
+        );
+        stats.bus_factors.push(BusFactorEntry {
+            directory: "src".to_string(),
+            bus_factor: 1,
+            top_authors: vec![],
+            total_changes: 1,
+        });
+        stats
+    }
+
+    #[test]
+    fn merges_exports() {
+        let dir = tempfile::tempdir().unwrap();
+        let gtk = export(
+            dir.path(),
+            "gtk",
+            project(
+                vec![
+                    author("Jane", "jane@x.org", 3, false),
+                    author("Marge", "marge@x.org", 1, false),
+                ],
+                "README",
+                4,
+                9,
+            ),
+        );
+        let mutter = export(
+            dir.path(),
+            "mutter",
+            project(
+                vec![
+                    author("Jane", "jane@x.org", 2, false),
+                    author("Marge", "marge@x.org", 5, true),
+                ],
+                "README",
+                7,
+                9,
+            ),
+        );
+
+        let out = merge(&[gtk, mutter]).unwrap();
+        assert_eq!(out.total_commits, 11);
+        assert_eq!(out.total_additions, 110);
+        assert_eq!(out.commits_by_hour[9], 11);
+        assert_eq!(out.cohesion_score, 100);
+        assert_eq!(out.from_ref, "");
+        assert_eq!(out.to_ref, "gtk, mutter");
+
+        assert_eq!(out.authors["jane@x.org"].commits, 5);
+        assert!(
+            out.authors["marge@x.org"].is_bot,
+            "flagged as a bot in any project → a bot"
+        );
+
+        // Same path in two projects must not collide.
+        let mut files: Vec<_> = out.files.keys().cloned().collect();
+        files.sort();
+        assert_eq!(files, ["gtk/README", "mutter/README"]);
+        let mut dirs: Vec<_> = out
+            .bus_factors
+            .iter()
+            .map(|b| b.directory.clone())
+            .collect();
+        dirs.sort();
+        assert_eq!(dirs, ["gtk/src", "mutter/src"]);
+    }
+
+    #[test]
+    fn rejects_non_exports() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bogus.json");
+        fs::write(&path, "{}").unwrap();
+        assert!(merge(&[path]).is_err());
+    }
+}

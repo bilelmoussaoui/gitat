@@ -693,7 +693,7 @@ fn compute_diff(
 
 #[cfg(test)]
 mod tests {
-    use super::is_bot;
+    use super::*;
 
     #[test]
     fn detects_bots() {
@@ -727,5 +727,132 @@ mod tests {
             &[]
         ));
         assert!(!is_bot("Botond Kis", "botond@example.org", &[]));
+    }
+
+    fn refs(message: &str) -> Vec<String> {
+        [&*FIXES_RE, &*CLOSES_RE, &*RESOLVES_RE]
+            .iter()
+            .flat_map(|re| re.captures_iter(message).map(|c| c[1].to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn parses_issue_references() {
+        assert_eq!(refs("Fixes #12"), ["12"]);
+        assert_eq!(refs("fixed !34 and closes #5"), ["34", "5"]);
+        assert_eq!(
+            refs("Closes: nothing\n\nResolves https://gitlab.gnome.org/GNOME/gtk/-/issues/678"),
+            ["678"]
+        );
+        // Plain prose must not count as a reference.
+        assert!(refs("this fixes a race in 2 places").is_empty());
+        assert!(refs("prefixes #1").is_empty());
+    }
+
+    #[test]
+    fn detects_ai_assistance() {
+        let co = "Do things\n\nCo-Authored-By: Claude Opus <noreply@anthropic.com>";
+        assert_eq!(detect_ai_model(co).as_deref(), Some("Claude"));
+        assert_eq!(
+            detect_ai_model("Generated with Copilot").as_deref(),
+            Some("Copilot")
+        );
+        assert_eq!(
+            detect_ai_model("Co-authored-by: Jane Doe <jane@example.org>"),
+            None
+        );
+        assert_eq!(detect_ai_model("created by hand"), None);
+    }
+
+    #[test]
+    fn groups_files_by_directory() {
+        assert_eq!(extract_directory("README.md"), "(root)");
+        assert_eq!(extract_directory("src/main.rs"), "src");
+        assert_eq!(extract_directory("src/web/app.js"), "src/web");
+        assert_eq!(extract_directory("docs/a/b/c.md"), "docs");
+    }
+}
+
+#[cfg(test)]
+mod collect_tests {
+    use super::collect;
+    use crate::test_util::{ALICE, BOB, MARGE, TestRepo};
+
+    #[test]
+    fn collects_a_range() {
+        let repo = TestRepo::new();
+        let base = repo.commit(
+            &[("src/a/x.rs", "1\n2\n3\n")],
+            "Initial import",
+            ALICE,
+            "2024-01-10T10:00:00Z",
+        );
+        let fix = repo.commit(
+            &[("src/a/x.rs", "1\n2\nthree\n4\n"), ("README", "hi\n")],
+            "Fix crash\n\nFixes #12\n\nCo-Authored-By: Claude <noreply@anthropic.com>",
+            BOB,
+            "2024-02-10T10:00:00Z",
+        );
+        let docs = repo.commit(
+            &[("docs/y.md", "a\nb\nc\nd\ne\n")],
+            "Add docs",
+            MARGE,
+            "2024-03-10T10:00:00Z",
+        );
+        std::fs::remove_file(repo.path().join("README")).unwrap();
+        let tip = repo.commit(&[], "Drop README", ALICE, "2024-04-10T10:00:00Z");
+
+        let stats = collect(repo.path(), "base", "tip", Some(base), tip, |_| {}).unwrap();
+
+        // `from` is excluded, like `git log base..tip`.
+        assert_eq!(stats.total_commits, 3);
+        let ids: Vec<_> = stats.commits.iter().map(|c| c.id.clone()).collect();
+        assert_eq!(
+            ids,
+            [tip, docs, fix].map(|id| id.to_string()),
+            "newest first"
+        );
+        assert_eq!(stats.from_commit_id, base.to_string());
+        assert_eq!(stats.to_commit_id, tip.to_string());
+
+        // x.rs: +2 -1, README: +1, then docs: +5, then README: -1.
+        assert_eq!(stats.total_additions, 8);
+        assert_eq!(stats.total_deletions, 2);
+
+        let bob = &stats.authors["bob@redhat.com"];
+        assert_eq!(bob.commits, 1);
+        assert_eq!(bob.fixes, ["12"]);
+        assert_eq!(bob.ai_assisted, 1);
+        assert!(!bob.is_bot);
+        assert!(stats.authors["marge@example.org"].is_bot);
+        assert_eq!(stats.authors["alice@example.org"].commits, 1);
+
+        // Only files that still exist at `to`.
+        let mut files: Vec<_> = stats.files.keys().cloned().collect();
+        files.sort();
+        assert_eq!(files, ["docs/y.md", "src/a/x.rs"]);
+
+        // Bots don't count towards bus factor, so `docs` (only touched by Marge) has none.
+        let dirs: Vec<_> = stats
+            .bus_factors
+            .iter()
+            .map(|b| b.directory.as_str())
+            .collect();
+        assert_eq!(dirs, ["src/a"]);
+        assert_eq!(
+            stats.bus_factors[0].top_authors,
+            [("Bob".to_string(), 100.0)]
+        );
+    }
+
+    #[test]
+    fn collects_from_the_beginning() {
+        let repo = TestRepo::new();
+        repo.commit(&[("f", "1\n")], "one", ALICE, "2024-01-10T10:00:00Z");
+        let tip = repo.commit(&[("f", "1\n2\n")], "two", BOB, "2024-02-10T10:00:00Z");
+
+        let stats = collect(repo.path(), "", "tip", None, tip, |_| {}).unwrap();
+        assert_eq!(stats.total_commits, 2);
+        assert_eq!(stats.from_commit_id, "");
     }
 }

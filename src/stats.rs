@@ -137,3 +137,55 @@ pub fn report_filename(project: &str, from_ref: &str, to_ref: &str, extension: &
         .collect();
     format!("{}.{extension}", parts.join("-"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn report_filenames_are_filesystem_safe() {
+        assert_eq!(
+            report_filename("gtk", "4.0.0", "main", "html"),
+            "gtk-4.0.0-main.html"
+        );
+        assert_eq!(
+            report_filename("gtk", "origin/main", "HEAD~3", "json"),
+            "gtk-origin-main-HEAD-3.json"
+        );
+        assert_eq!(
+            report_filename("gtk", "6 months ago", "HEAD", "html"),
+            "gtk-6-months-ago-HEAD.html"
+        );
+        // Combined reports have an empty `from_ref`.
+        assert_eq!(
+            report_filename("GNOME", "", "gtk, mutter", "html"),
+            "GNOME-gtk-mutter.html"
+        );
+    }
+
+    #[test]
+    fn mark_bots_applies_extra_patterns() {
+        let mut stats = RepoStats::default();
+        for (name, email) in [
+            ("Damned Lies", "dl@gnome.org"),
+            ("Marge Bot", "m@x.org"),
+            ("Jane", "jane@x.org"),
+        ] {
+            stats.authors.insert(
+                email.to_string(),
+                AuthorStats {
+                    name: name.to_string(),
+                    email: email.to_string(),
+                    ..Default::default()
+                },
+            );
+        }
+        stats.mark_bots(&["damned lies".to_string()]);
+        assert!(stats.authors["dl@gnome.org"].is_bot);
+        assert!(
+            stats.authors["m@x.org"].is_bot,
+            "built-in patterns are re-applied too"
+        );
+        assert!(!stats.authors["jane@x.org"].is_bot);
+    }
+}

@@ -198,3 +198,59 @@ pub fn export(
     eprintln!("  ✓ Exported to {filename}");
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn commit(id: &str, churn: u64, is_bot: bool, timestamp: i64) -> CommitInfo {
+        CommitInfo {
+            id: id.to_string(),
+            author_name: String::new(),
+            author_email: String::new(),
+            timestamp,
+            message: String::new(),
+            additions: churn,
+            deletions: 0,
+            files_changed: 1,
+            refs: vec![],
+            ai_model: None,
+            is_bot,
+            files: vec![],
+        }
+    }
+
+    #[test]
+    fn shortens_only_full_shas() {
+        assert_eq!(
+            short_ref("4b825dc642cb6eb9a060e54bf8d69288fbee4904"),
+            "4b825dc"
+        );
+        assert_eq!(short_ref("v1.2.3"), "v1.2.3");
+        assert_eq!(short_ref("2024-01-01"), "2024-01-01");
+    }
+
+    #[test]
+    fn web_data_skips_bots_and_bogus_dates() {
+        let ts = 1_704_067_200; // 2024-01-01
+        let stats = RepoStats {
+            commits: vec![
+                commit("bot", 10_000, true, ts),
+                commit("future", 50, false, i64::MAX / 2),
+                commit("big", 500, false, ts),
+                commit("small", 5, false, 0),
+            ],
+            ..Default::default()
+        };
+        let data = build_web_data(&stats);
+        let impact: Vec<_> = data.top_impact_commits.iter().map(|c| c.id).collect();
+        assert_eq!(
+            impact,
+            ["big", "future", "small"],
+            "bots aren't high-impact commits"
+        );
+        // Epoch-zero and far-future timestamps stay out of the date charts.
+        assert_eq!(data.yearly_commit_counts, [(2024, 2)]);
+        assert_eq!(data.latest_commit.map(|c| c.id).as_deref(), Some("bot"));
+    }
+}
