@@ -8,6 +8,11 @@ function section(cls, parts) {
 }
 const fmt = n => n ? n.toLocaleString() : 0;
 const fmtDate = ts => new Date(ts * 1000).toISOString().slice(0, 10);
+// Bar charts are drawn at their container's real pixel width (see drawCharts) rather than
+// scaled from a fixed viewBox, which shrank their labels to unreadable on phones.
+const chartHeight = W => Math.round(Math.min(280, Math.max(220, W * 0.45)));
+const AXIS_TITLE = 'font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em';
+const TICK = 'font-size:12px;font-weight:500';
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 function mergedAuthors() {
@@ -212,7 +217,9 @@ function renderHeatmap() {
   const sz = 12, gap = 4, step = sz + gap, lp = 36, tp = 24;
   const svgW = lp + cells.length * step, svgH = tp + 7 * step;
   const dayNames = ['', 'Mon', '', 'Wed', '', 'Fri', ''];
-  let svg = `<svg viewBox="0 0 ${svgW} ${svgH}" style="width:100%;max-width:${svgW}px;display:block;">`;
+  // Fixed size: scaled down to a phone's width the cells and labels become unreadable, so
+  // the wrapper scrolls horizontally instead.
+  let svg = `<svg width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}">`;
   for (const { week, label } of monthLabels) svg += `<text x="${lp + week * step}" y="14" fill="var(--c-muted)" style="font-size:11px;font-weight:500;">${label}</text>`;
   for (let d = 0; d < 7; d++) if (dayNames[d]) svg += `<text x="0" y="${tp + d * step + 10}" fill="var(--c-muted)" style="font-size:11px;font-weight:500;">${dayNames[d]}</text>`;
   for (let w = 0; w < cells.length; w++)
@@ -261,37 +268,41 @@ function renderAffiliationsDonut() {
   </div>`;
 }
 
-function renderPulse() {
+function pulseSvg(W) {
   const entries = DATA.yearly_commit_counts || [];
   const years = entries.map(([y]) => String(y));
   const vals = entries.map(([, v]) => v);
   const maxV = Math.max(...vals, 1);
-  if (years.length < 2) return '';
-  const W = 500, H = 220;
+  const H = chartHeight(W);
   // Left padding scales with the tick label width so large counts don't collide with the axis title.
-  const pad = { t: 16, r: 16, b: 48, l: 28 + fmt(maxV).length * 7 };
+  const pad = { t: 16, r: 16, b: 56, l: 32 + fmt(maxV).length * 8 };
   const cw = W - pad.l - pad.r, ch = H - pad.t - pad.b;
   const barW = Math.min(Math.floor(cw / years.length) - 4, 28);
   const step = cw / years.length;
-  let svg = `<svg width="100%" viewBox="0 0 ${W} ${H}" style="display:block">`;
-  svg += `<text x="${12}" y="${pad.t + ch / 2}" text-anchor="middle" fill="var(--c-muted)" style="font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em" transform="rotate(-90 12 ${pad.t + ch / 2})">Commits</text>`;
-  svg += `<text x="${pad.l + cw / 2}" y="${H - 4}" text-anchor="middle" fill="var(--c-muted)" style="font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em">Year</text>`;
+  let svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block">`;
+  svg += `<text x="${12}" y="${pad.t + ch / 2}" text-anchor="middle" fill="var(--c-muted)" style="${AXIS_TITLE}" transform="rotate(-90 12 ${pad.t + ch / 2})">Commits</text>`;
+  svg += `<text x="${pad.l + cw / 2}" y="${H - 4}" text-anchor="middle" fill="var(--c-muted)" style="${AXIS_TITLE}">Year</text>`;
   for (let i = 0; i <= 4; i++) {
     const y = pad.t + ch - (ch * i / 4);
     svg += `<line x1="${pad.l}" y1="${y}" x2="${W - pad.r}" y2="${y}" stroke="var(--c-grid)" stroke-width="1" ${i > 0 ? 'stroke-dasharray="4,4"' : ''}/>`;
-    svg += `<text x="${pad.l - 8}" y="${y + 3}" text-anchor="end" fill="var(--c-muted)" style="font-size:10px;font-weight:500">${fmt(Math.round(maxV * i / 4))}</text>`;
+    svg += `<text x="${pad.l - 8}" y="${y + 3}" text-anchor="end" fill="var(--c-muted)" style="${TICK}">${fmt(Math.round(maxV * i / 4))}</text>`;
   }
-  const showEvery = years.length > 20 ? 3 : years.length > 10 ? 2 : 1;
+  // Rotated labels need ~16px each; thin them out when the bars are narrower than that.
+  const showEvery = Math.max(1, Math.ceil(16 / step));
   for (let i = 0; i < years.length; i++) {
     const x = pad.l + i * step + (step - barW) / 2;
     const h = (vals[i] / maxV) * ch;
     svg += `<rect x="${x}" y="${pad.t + ch - h}" width="${barW}" height="${h}" rx="3" fill="var(--c-accent)" opacity="0.9"><title>${years[i]}: ${fmt(vals[i])} commits</title></rect>`;
-    if (i % showEvery === 0 || i === years.length - 1) svg += `<text x="${x + barW / 2}" y="${pad.t + ch + 12}" text-anchor="end" fill="var(--c-muted)" style="font-size:10px;font-weight:500" transform="rotate(-60 ${x + barW / 2} ${pad.t + ch + 12})">${years[i]}</text>`;
+    if (i % showEvery === 0 || i === years.length - 1) svg += `<text x="${x + barW / 2}" y="${pad.t + ch + 12}" text-anchor="end" fill="var(--c-muted)" style="${TICK}" transform="rotate(-60 ${x + barW / 2} ${pad.t + ch + 12})">${years[i]}</text>`;
   }
-  svg += '</svg>';
+  return svg + '</svg>';
+}
+
+function renderPulse() {
+  if ((DATA.yearly_commit_counts || []).length < 2) return '';
   return `<div class="card card-col-between">
     <div class="card-title">Yearly Productivity Pulse</div>
-    <div class="chart-wrap">${svg}</div>
+    <div class="chart-wrap" data-chart="pulse"></div>
   </div>`;
 }
 
@@ -323,32 +334,35 @@ function renderDayDonut() {
   </div>`;
 }
 
-function renderHourChart() {
+function hourSvg(W) {
   const hours = DATA.commits_by_hour || Array(24).fill(0);
   const maxH = Math.max(...hours, 1);
-  const W = 500, H = 220;
+  const H = chartHeight(W);
   // Left padding scales with the tick label width so large counts don't collide with the axis title.
-  const pad = { t: 16, r: 16, b: 40, l: 28 + fmt(maxH).length * 7 };
+  const pad = { t: 16, r: 16, b: 44, l: 32 + fmt(maxH).length * 8 };
   const cw = W - pad.l - pad.r, ch = H - pad.t - pad.b;
   const step = cw / 24, barW = Math.max(2, Math.floor(step) - 2);
-  let svg = `<svg width="100%" viewBox="0 0 ${W} ${H}" style="display:block">`;
-  svg += `<text x="${12}" y="${pad.t + ch / 2}" text-anchor="middle" fill="var(--c-muted)" style="font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em" transform="rotate(-90 12 ${pad.t + ch / 2})">Commits</text>`;
-  svg += `<text x="${pad.l + cw / 2}" y="${H - 4}" text-anchor="middle" fill="var(--c-muted)" style="font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em">Hour of Day</text>`;
+  let svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block">`;
+  svg += `<text x="${12}" y="${pad.t + ch / 2}" text-anchor="middle" fill="var(--c-muted)" style="${AXIS_TITLE}" transform="rotate(-90 12 ${pad.t + ch / 2})">Commits</text>`;
+  svg += `<text x="${pad.l + cw / 2}" y="${H - 4}" text-anchor="middle" fill="var(--c-muted)" style="${AXIS_TITLE}">Hour of Day</text>`;
   for (let i = 0; i <= 4; i++) {
     const y = pad.t + ch - (ch * i / 4);
     svg += `<line x1="${pad.l}" y1="${y}" x2="${W - pad.r}" y2="${y}" stroke="var(--c-grid)" stroke-width="1" ${i > 0 ? 'stroke-dasharray="4,4"' : ''}/>`;
-    svg += `<text x="${pad.l - 8}" y="${y + 3}" text-anchor="end" fill="var(--c-muted)" style="font-size:10px;font-weight:500">${fmt(Math.round(maxH * i / 4))}</text>`;
+    svg += `<text x="${pad.l - 8}" y="${y + 3}" text-anchor="end" fill="var(--c-muted)" style="${TICK}">${fmt(Math.round(maxH * i / 4))}</text>`;
   }
   for (let i = 0; i < 24; i++) {
     const x = pad.l + i * step + (step - barW) / 2;
     const h = (hours[i] / maxH) * ch;
     svg += `<rect x="${x}" y="${pad.t + ch - h}" width="${barW}" height="${h}" rx="1.5" fill="var(--c-accent)" opacity="0.9"><title>${String(i).padStart(2,'0')}:00 — ${fmt(hours[i])} commits</title></rect>`;
-    if (i % 4 === 0) svg += `<text x="${x + barW / 2}" y="${pad.t + ch + 16}" text-anchor="middle" fill="var(--c-muted)" style="font-size:10px;font-weight:500">${String(i).padStart(2,'0')}</text>`;
+    if (i % (step < 14 ? 6 : 4) === 0) svg += `<text x="${x + barW / 2}" y="${pad.t + ch + 18}" text-anchor="middle" fill="var(--c-muted)" style="${TICK}">${String(i).padStart(2,'0')}</text>`;
   }
-  svg += '</svg>';
+  return svg + '</svg>';
+}
+
+function renderHourChart() {
   return `<div class="card card-col-between">
     <div class="card-title">Hourly Activity Profile</div>
-    <div class="chart-wrap">${svg}</div>
+    <div class="chart-wrap" data-chart="hourly"></div>
   </div>`;
 }
 
@@ -571,3 +585,18 @@ document.getElementById('app').innerHTML = [
   section('section', [show('impact_commits', renderImpact())]),
   section('section', [show('code_decay', renderCodeDecay())]),
 ].join('');
+
+const CHARTS = { pulse: pulseSvg, hourly: hourSvg };
+function drawCharts() {
+  for (const el of document.querySelectorAll('[data-chart]')) {
+    const W = Math.floor(el.clientWidth);
+    if (!W || el.dataset.width === String(W)) continue;
+    el.dataset.width = W;
+    el.innerHTML = CHARTS[el.dataset.chart](W);
+  }
+}
+drawCharts();
+window.addEventListener('resize', drawCharts);
+
+// Most recent activity is on the right; start there when the heatmap overflows.
+for (const el of document.querySelectorAll('.heatmap-wrap')) el.scrollLeft = el.scrollWidth;

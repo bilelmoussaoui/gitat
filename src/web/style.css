@@ -78,6 +78,7 @@ body {
   border-radius: var(--radius);
   padding: 24px;
   box-shadow: var(--c-shadow-lg);
+  min-width: 0;
 }
 .card-title {
   font-size: 12px;
@@ -141,8 +142,10 @@ svg text { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
   white-space: nowrap;
 }
 .section-header:first-child { margin-top: 0; }
-.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
-@media(max-width: 1024px) { .grid-2 { grid-template-columns: 1fr; gap: 24px; } }
+/* minmax(0, …), not 1fr: a bare 1fr column can't shrink below its longest nowrap line
+   (emails, paths, commit messages), which pushed the whole page sideways on phones. */
+.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px; }
+@media(max-width: 1024px) { .grid-2 { grid-template-columns: minmax(0, 1fr); gap: 24px; } }
 
 .theme-toggle {
   background: var(--c-subtle);
@@ -161,7 +164,10 @@ svg text { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
 .theme-toggle:hover { color: var(--c-fg); background: var(--c-border); }
 
 /* — Report header — */
-.header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+.header-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+.header-row > div { min-width: 0; }
+.report-title { overflow-wrap: anywhere; }
+.theme-toggle { flex-shrink: 0; }
 .report-title { margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -0.03em; color: var(--c-fg); }
 .report-range { font-size: 18px; font-weight: 600; }
 .report-subtitle { font-size: 13px; color: var(--c-muted); margin-top: 2px; }
@@ -179,7 +185,10 @@ svg text { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
 .stat-value { font-size: 20px; font-weight: 700; line-height: 1.2; color: var(--c-fg); }
 
 /* — Contribution heatmap — */
-.heatmap-wrap { display: flex; justify-content: center; width: 100%; overflow-x: auto; padding: 8px 0; margin: 0 auto; }
+/* Block + auto margins rather than flex centering: a centered flex child that overflows
+   gets its left edge cut off out of scroll reach. */
+.heatmap-wrap { width: 100%; overflow-x: auto; padding: 8px 0; -webkit-overflow-scrolling: touch; }
+.heatmap-wrap svg { display: block; margin: 0 auto; flex-shrink: 0; }
 .heatmap-legend { display: flex; align-items: center; gap: 6px; margin-top: 16px; justify-content: flex-end; }
 .heatmap-legend .swatch { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
 .heatmap-scale-label { font-size: 11px; color: var(--c-muted); }
@@ -239,6 +248,33 @@ svg text { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
 .decay-legend-item .decay-legend-pct { font-size: 11px; }
 .decay-summary { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--c-border); font-size: 13px; color: var(--c-muted); }
 .decay-stale { font-weight: 700; }
+
+/* — Phones — */
+@media (max-width: 640px) {
+  #app { padding: 16px 12px; }
+  .card { padding: 16px; }
+  .card-title { margin-bottom: 14px; }
+  .section { margin-bottom: 20px; }
+  .section-header { margin: 32px 0 16px; }
+  .grid-2 { gap: 16px; }
+
+  .header-row { align-items: flex-start; margin-bottom: 16px; }
+  .report-title { font-size: 22px; }
+  .report-range { display: block; font-size: 15px; margin-top: 2px; }
+  .theme-toggle span { display: none; }
+
+  .vitals-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding-top: 16px; }
+  .stat-value { font-size: 16px; }
+
+  .donut-layout { gap: 16px; }
+  .donut-legend { min-width: 0; flex-basis: 100%; }
+  /* Nested scroll areas are awkward to use by touch; these lists are short (top 10) anyway. */
+  .scroll-list, .donut-legend, .donut-legend--tall { max-height: none; overflow-y: visible; padding-right: 0; }
+
+  .list-title-sub { display: block; margin-left: 0; overflow: hidden; text-overflow: ellipsis; }
+  .list-value { font-size: 12px; }
+  .decay-legend-item { margin-right: 12px; }
+}
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: var(--c-bg); }
