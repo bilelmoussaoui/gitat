@@ -368,27 +368,18 @@ pub fn collect(
     path: &Path,
     from: &str,
     to: &str,
+    from_id: Option<ObjectId>,
+    to_id: ObjectId,
     on_progress: impl Fn(u64) + Send + Sync,
 ) -> Result<RepoStats> {
     let mut repo = gix::open(path).context("failed to open repository")?;
     repo.object_cache_size(64 * 1024 * 1024);
 
-    let from_id = repo
-        .rev_parse_single(from)
-        .with_context(|| format!("failed to resolve '{from}'"))?
-        .object()
-        .with_context(|| format!("failed to load object for '{from}'"))?
-        .peel_to_commit()
-        .with_context(|| format!("'{from}' does not resolve to a commit"))?
-        .id;
     let to_commit = repo
-        .rev_parse_single(to)
-        .with_context(|| format!("failed to resolve '{to}'"))?
-        .object()
+        .find_object(to_id)
         .with_context(|| format!("failed to load object for '{to}'"))?
-        .peel_to_commit()
+        .try_into_commit()
         .with_context(|| format!("'{to}' does not resolve to a commit"))?;
-    let to_id = to_commit.id;
     let to_tree_id = to_commit
         .tree_id()
         .context("failed to get 'to' tree id")?
@@ -405,7 +396,7 @@ pub fn collect(
         for info in repo
             .rev_walk([to_id])
             .sorting(Sorting::ByCommitTime(CommitTimeOrder::NewestFirst))
-            .with_hidden([from_id])
+            .with_hidden(from_id)
             .all()
             .context("failed to walk commits")?
         {
@@ -458,7 +449,7 @@ pub fn collect(
     let mut stats = RepoStats {
         from_ref: from.to_string(),
         to_ref: to.to_string(),
-        from_commit_id: from_id.to_string(),
+        from_commit_id: from_id.map(|id| id.to_string()).unwrap_or_default(),
         to_commit_id: to_id.to_string(),
         total_commits: merged.total_commits,
         total_additions: merged.total_additions,

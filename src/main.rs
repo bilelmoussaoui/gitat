@@ -2,6 +2,7 @@ mod cache;
 mod collector;
 mod combine;
 mod config;
+mod revspec;
 mod stats;
 mod web;
 
@@ -11,7 +12,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 use config::Config;
@@ -41,11 +42,15 @@ enum Command {
         /// Path to the git repository
         path: PathBuf,
 
-        /// Starting ref (branch, tag, or commit) — the baseline
+        /// Starting ref (branch, tag, or commit) or date (`2024-01-01`, `6 months ago`, ...) — the baseline
         from: String,
 
-        /// Ending ref (branch, tag, or commit) — what changed since `from`
+        /// Ending ref (branch, tag, or commit) or date — what changed since `from`
         to: String,
+
+        /// Branch whose history dates are looked up on
+        #[arg(long, short, default_value = "HEAD")]
+        branch: String,
 
         /// Output format. Json is handy for combining stats across multiple repos.
         #[arg(long, short, default_value = "web")]
@@ -114,14 +119,26 @@ fn run_diff(
     path: PathBuf,
     from: String,
     to: String,
+    branch: String,
     output: Output,
     config: Option<PathBuf>,
 ) -> Result<()> {
     let config = load_config(&config)?;
     let start = Instant::now();
 
-    let mut stats = if let Some(cached) = cache::load(&path, &from, &to) {
+    let (from_id, to_id) = {
+        let repo = gix::open(&path).context("failed to open repository")?;
+        (
+            revspec::resolve_from(&repo, &from, &branch)?,
+            revspec::resolve_to(&repo, &to, &branch)?,
+        )
+    };
+
+    let mut stats = if let Some(mut cached) = cache::load(&path, from_id, to_id) {
         eprintln!("  ✓ Loaded from cache");
+        // The same commits may have been reached through different refs/dates.
+        cached.from_ref = from.clone();
+        cached.to_ref = to.clone();
         cached
     } else {
         let commit_count = Arc::new(AtomicU64::new(0));
@@ -149,13 +166,13 @@ fn run_diff(
         });
 
         let count_ref = Arc::clone(&commit_count);
-        let stats = collector::collect(&path, &from, &to, |n| {
+        let stats = collector::collect(&path, &from, &to, from_id, to_id, |n| {
             count_ref.store(n, Ordering::Relaxed);
         })?;
         done.store(true, Ordering::Relaxed);
         spinner_handle.join().unwrap();
 
-        cache::save(&path, &from, &to, &stats);
+        cache::save(&path, from_id, to_id, &stats);
         stats
     };
 
@@ -195,9 +212,10 @@ fn main() -> Result<()> {
             path,
             from,
             to,
+            branch,
             output,
             config,
-        } => run_diff(path, from, to, output, config),
+        } => run_diff(path, from, to, branch, output, config),
         Command::Combine {
             files,
             output,

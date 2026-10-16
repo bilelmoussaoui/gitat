@@ -3,10 +3,11 @@
 Git statistics for the changes between two branches or releases.
 
 ```
-gitat diff <path> <from> <to> [--output web|json] [--config <file>]
+gitat diff <path> <from> <to> [--branch <ref>] [--output web|json] [--config <file>]
 gitat combine <file.json>... [--output web|json] [--config <file>]
 ```
 
+- `<from>` / `<to>` are refs (branch, tag, commit) or dates (`2024-01-01`, `2024-01-01 12:00:00 +0200`, `6 months ago`, ...). A date picks the first commit on `--branch` (default `HEAD`, first-parent history) at or after it; commits on the `<from>` date itself are included. A `<to>` date past the latest commit means the whole branch
 - `web` (default) writes `<project>-<from>-<to>.html`
 - `json` writes `<project>-<from>-<to>.json`, handy for combining results across repos
 - `combine` merges several `diff --output json` exports into one umbrella report

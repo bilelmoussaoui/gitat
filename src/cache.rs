@@ -2,11 +2,18 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 
+use gix::ObjectId;
+
 use crate::stats::RepoStats;
 
-fn cache_path(repo_path: &Path, from: &str, to: &str) -> Option<std::path::PathBuf> {
+fn cache_path(
+    repo_path: &Path,
+    from_id: Option<ObjectId>,
+    to_id: ObjectId,
+) -> Option<std::path::PathBuf> {
     let canonical = repo_path.canonicalize().ok()?;
-    let key = format!("{}\n{from}\n{to}", canonical.to_string_lossy());
+    let from_id = from_id.map(|id| id.to_string()).unwrap_or_default();
+    let key = format!("{}\n{from_id}\n{to_id}", canonical.to_string_lossy());
     let hash = simple_hash(key.as_bytes());
     let dir = dirs::cache_dir()?.join("gitat");
     Some(dir.join(format!("{hash}.json")))
@@ -21,41 +28,16 @@ fn simple_hash(data: &[u8]) -> String {
     format!("{h:016x}")
 }
 
-fn resolve_commit_id(repo: &gix::Repository, r: &str) -> Option<String> {
-    Some(
-        repo.rev_parse_single(r)
-            .ok()?
-            .object()
-            .ok()?
-            .peel_to_commit()
-            .ok()?
-            .id
-            .to_string(),
-    )
-}
-
-fn resolve_ids(repo_path: &Path, from: &str, to: &str) -> Option<(String, String)> {
-    let repo = gix::open(repo_path).ok()?;
-    let from_id = resolve_commit_id(&repo, from)?;
-    let to_id = resolve_commit_id(&repo, to)?;
-    Some((from_id, to_id))
-}
-
-pub fn load(repo_path: &Path, from: &str, to: &str) -> Option<RepoStats> {
-    let path = cache_path(repo_path, from, to)?;
+/// Keyed by the resolved commits rather than the refs/dates given on the command line, so
+/// e.g. `main` moving on, or two dates landing on the same commits, are handled for free.
+pub fn load(repo_path: &Path, from_id: Option<ObjectId>, to_id: ObjectId) -> Option<RepoStats> {
+    let path = cache_path(repo_path, from_id, to_id)?;
     let data = fs::read_to_string(&path).ok()?;
-    let stats: RepoStats = serde_json::from_str(&data).ok()?;
-
-    let (from_id, to_id) = resolve_ids(repo_path, from, to)?;
-    if stats.from_commit_id != from_id || stats.to_commit_id != to_id {
-        return None;
-    }
-
-    Some(stats)
+    serde_json::from_str(&data).ok()
 }
 
-pub fn save(repo_path: &Path, from: &str, to: &str, stats: &RepoStats) {
-    let Some(path) = cache_path(repo_path, from, to) else {
+pub fn save(repo_path: &Path, from_id: Option<ObjectId>, to_id: ObjectId, stats: &RepoStats) {
+    let Some(path) = cache_path(repo_path, from_id, to_id) else {
         return;
     };
     if let Some(parent) = path.parent() {
