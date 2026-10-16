@@ -63,6 +63,7 @@ pub fn merge(files: &[impl AsRef<Path>]) -> Result<RepoStats> {
             entry.deletions += author.deletions;
             entry.files_changed += author.files_changed;
             entry.ai_assisted += author.ai_assisted;
+            entry.is_bot |= author.is_bot;
             entry.fixes.extend(author.fixes);
             entry.closes.extend(author.closes);
             entry.first_commit_ts = entry.first_commit_ts.min(author.first_commit_ts);

@@ -120,7 +120,7 @@ fn run_diff(
     let config = load_config(&config)?;
     let start = Instant::now();
 
-    let stats = if let Some(cached) = cache::load(&path, &from, &to) {
+    let mut stats = if let Some(cached) = cache::load(&path, &from, &to) {
         eprintln!("  ✓ Loaded from cache");
         cached
     } else {
@@ -159,6 +159,8 @@ fn run_diff(
         stats
     };
 
+    stats.mark_bots(&config.bots);
+
     let elapsed = start.elapsed();
     eprintln!("  Ready in {elapsed:.2?}");
 
@@ -173,6 +175,7 @@ fn run_combine(files: Vec<PathBuf>, output: Output, config: Option<PathBuf>) -> 
     let config = load_config(&config)?;
 
     let mut stats = combine::merge(&files)?;
+    stats.mark_bots(&config.bots);
     eprintln!("  ✓ Combined {} projects", files.len());
 
     // A custom name means the report shouldn't leak its constituent projects.

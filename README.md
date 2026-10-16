@@ -18,9 +18,11 @@ Optional `--config gitat.toml`:
 ```toml
 name = "GNOME"
 hide = ["bus_factor", "code_decay"]
+bots = ["damned-lies", "Translation Robot"]
 ```
 
 - `name` — override the project name shown in the report / used in the output filename / JSON `project` field
+- `bots` — extra name/email substrings (case-insensitive) marking bot accounts, on top of the built-in detection (`[bot]`, dependabot, renovate, marge-bot, bors, any name or email word `bot`/`robot`, …). Bots are left out of Top Contributors, Affiliations, the contributor count, Bus Factor and Highest Impact Commits, and counted under Automated Bots instead
 - `hide` — chart keys to omit from the web report:
 
 | key | chart |

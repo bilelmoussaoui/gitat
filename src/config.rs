@@ -12,6 +12,9 @@ pub struct Config {
     /// Chart keys to omit from the web report.
     #[serde(default)]
     pub hide: Vec<String>,
+    /// Extra name/email substrings identifying bot accounts, on top of the built-in ones.
+    #[serde(default)]
+    pub bots: Vec<String>,
 }
 
 impl Config {

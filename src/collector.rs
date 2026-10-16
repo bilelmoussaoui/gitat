@@ -85,12 +85,24 @@ const BOT_PATTERNS: &[&str] = &[
     "marge-bot",
 ];
 
-fn is_bot(name: &str, email: &str) -> bool {
+/// Whole words that mark an identity as automated, e.g. "Marge Bot", "GNOME Translation
+/// Robot", "bors@rust-lang.org". Matched per word so names like "Abbott" don't trip it.
+const BOT_WORDS: &[&str] = &["bot", "robot", "bors"];
+
+pub fn is_bot(name: &str, email: &str, extra_patterns: &[String]) -> bool {
     let name_lower = name.to_lowercase();
     let email_lower = email.to_lowercase();
-    BOT_PATTERNS
-        .iter()
-        .any(|p| name_lower.contains(p) || email_lower.contains(p))
+    let matches = |p: &str| name_lower.contains(p) || email_lower.contains(p);
+    if BOT_PATTERNS.iter().any(|p| matches(p))
+        || extra_patterns.iter().any(|p| matches(&p.to_lowercase()))
+    {
+        return true;
+    }
+    let local_part = email_lower.split('@').next().unwrap_or("");
+    name_lower
+        .split(|c: char| !c.is_alphanumeric())
+        .chain(local_part.split(|c: char| !c.is_alphanumeric()))
+        .any(|word| BOT_WORDS.contains(&word))
 }
 
 struct CommitMeta {
@@ -130,7 +142,7 @@ fn extract_commit_meta(repo: &gix::Repository, id: ObjectId) -> Result<CommitMet
 
     let message = commit.message_raw_sloppy().to_string();
     let ai_model = detect_ai_model(&message);
-    let bot = is_bot(&name, &email);
+    let bot = is_bot(&name, &email, &[]);
 
     let mut refs = Vec::new();
     for cap in FIXES_RE.captures_iter(&message) {
@@ -246,7 +258,8 @@ fn fold_commit(mut acc: MergedChunk, (meta, diff): (CommitMeta, DiffResult)) -> 
         }
 
         let lines_changed = adds + dels;
-        if lines_changed > 0 {
+        // Bots don't carry knowledge away when they leave, so they don't count towards bus factor.
+        if lines_changed > 0 && !meta.is_bot {
             *acc.dir_author_changes
                 .entry(extract_directory(path))
                 .or_default()
@@ -685,4 +698,43 @@ fn compute_diff(
     });
 
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_bot;
+
+    #[test]
+    fn detects_bots() {
+        assert!(is_bot("Marge Bot", "marge@example.org", &[]));
+        assert!(is_bot("bors", "bors@rust-lang.org", &[]));
+        assert!(is_bot(
+            "dependabot[bot]",
+            "49699333+dependabot[bot]@users.noreply.github.com",
+            &[]
+        ));
+        assert!(is_bot(
+            "GNOME Translation Robot",
+            "gnome-sysadmin@gnome.org",
+            &[]
+        ));
+        assert!(is_bot("CI", "ci-bot@example.org", &[]));
+        assert!(is_bot(
+            "Damned Lies",
+            "dl@gnome.org",
+            &["damned lies".into()]
+        ));
+    }
+
+    #[test]
+    fn ignores_humans() {
+        assert!(!is_bot("Jane Abbott", "jane@example.org", &[]));
+        assert!(!is_bot("Ann Borsos", "ann@borsos.hu", &[]));
+        assert!(!is_bot(
+            "Bilal Elmoussaoui",
+            "bil.elmoussaoui@gmail.com",
+            &[]
+        ));
+        assert!(!is_bot("Botond Kis", "botond@example.org", &[]));
+    }
 }

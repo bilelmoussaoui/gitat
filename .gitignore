@@ -4,3 +4,4 @@
 !/src/web/*.html
 *.toml
 !/Cargo.toml
+*.DS_Store

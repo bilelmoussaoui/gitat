@@ -103,7 +103,8 @@ fn build_web_data(stats: &RepoStats) -> WebData<'_> {
     top_files.sort_by_key(|f| std::cmp::Reverse(f.change_count));
     top_files.truncate(TOP_N);
 
-    let mut top_impact_commits: Vec<&CommitInfo> = stats.commits.iter().collect();
+    let mut top_impact_commits: Vec<&CommitInfo> =
+        stats.commits.iter().filter(|c| !c.is_bot).collect();
     top_impact_commits.sort_by_key(|c| std::cmp::Reverse(c.additions + c.deletions));
     top_impact_commits.truncate(TOP_N);
     let top_impact_commits = top_impact_commits

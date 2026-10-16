@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::collector::is_bot;
+
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct RepoStats {
     pub from_ref: String,
@@ -25,6 +27,19 @@ pub struct RepoStats {
     pub cohesion_score: u8,
     #[serde(default)]
     pub tags: Vec<TagInfo>,
+}
+
+impl RepoStats {
+    /// Re-flag bot authors/commits, so cached or previously exported stats pick up
+    /// both updated built-in patterns and the config's extra ones.
+    pub fn mark_bots(&mut self, extra_patterns: &[String]) {
+        for author in self.authors.values_mut() {
+            author.is_bot |= is_bot(&author.name, &author.email, extra_patterns);
+        }
+        for commit in &mut self.commits {
+            commit.is_bot |= is_bot(&commit.author_name, &commit.author_email, extra_patterns);
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

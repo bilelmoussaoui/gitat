@@ -21,12 +21,15 @@ function mergedAuthors() {
       m.commits += a.commits; m.additions += a.additions; m.deletions += a.deletions;
       m.files_changed += a.files_changed; m.fixes += (a.fixes||[]).length; m.closes += (a.closes||[]).length;
       m.ai_assisted += a.ai_assisted;
+      m.is_bot = m.is_bot || a.is_bot;
       if (a.first_commit_ts < m.first_commit_ts) m.first_commit_ts = a.first_commit_ts;
       if (a.last_commit_ts > m.last_commit_ts) m.last_commit_ts = a.last_commit_ts;
     }
   }
   return Object.values(byName).sort((a, b) => b.commits - a.commits);
 }
+
+function humanAuthors() { return mergedAuthors().filter(a => !a.is_bot); }
 
 function buildAffiliations() {
   const KNOWN = {
@@ -62,7 +65,7 @@ function buildAffiliations() {
     'free.fr','laposte.net','orange.fr','wanadoo.fr','seznam.cz',
     '163.com','qq.com','126.com','sina.com','naver.com',
   ]);
-  const authors = mergedAuthors();
+  const authors = humanAuthors();
   const total = authors.reduce((s, a) => s + a.commits, 0);
   const counts = {};
   for (const a of authors) {
@@ -125,7 +128,7 @@ function renderVitalsAndHeatmap() {
     const firstYear = Math.min(...years), lastYear = Math.max(...years);
     lifespan = lastYear - firstYear > 0 ? `${firstYear}–${lastYear}` : `Since ${firstYear}`;
   }
-  const uniqueAuthors = new Set(authors.map(a => a.name)).size;
+  const uniqueAuthors = new Set(authors.filter(a => !a.is_bot).map(a => a.name)).size;
   const generatedAt = new Date().toISOString().slice(0, 10);
   // Combined reports clear from_ref (combine.rs) — no single "latest commit" applies.
   const isCombined = !DATA.from_ref;
@@ -336,7 +339,7 @@ function renderHourChart() {
 }
 
 function renderContributors() {
-  const authors = mergedAuthors().slice(0, 10);
+  const authors = humanAuthors().slice(0, 10);
   const maxC = authors.length > 0 ? authors[0].commits : 1;
   const rows = authors.map((a, i) => {
     const pct = (a.commits / maxC * 100);
