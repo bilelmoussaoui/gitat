@@ -26,8 +26,18 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --locked -- -D warnings
-      # The report's JS is embedded as a string, so nothing else would catch a syntax error.
-      - run: node --check src/web/app.js
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Keep in sync with the $schema version in biome.json.
+      - uses: biomejs/setup-biome@v2
+        with:
+          version: 2.5.15
+      # Formatting + lint of the report's HTML/CSS/JS (src/web), which are embedded as strings
+      # so the Rust toolchain never looks at them.
+      - run: biome ci
 
   test:
     strategy:

@@ -45,3 +45,13 @@ bots = ["damned-lies", "Translation Robot"]
 | `bus_factor` | Bus Factor Risk |
 | `impact_commits` | Highest Impact Commits |
 | `code_decay` | Code Decay |
+
+## Development
+
+```
+cargo fmt && cargo clippy --all-targets && cargo test
+npx @biomejs/biome@2.5.15 check --write   # format + lint src/web (HTML/CSS/JS)
+```
+
+CI runs the same checks (`biome ci` for `src/web`). The Biome version is pinned in
+`biome.json` (`$schema`) and `.github/workflows/ci.yml`; bump both together.

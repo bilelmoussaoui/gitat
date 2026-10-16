@@ -1,22 +1,19 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>gitat — {{REPO_NAME}}</title>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<style>
-{{STYLE}}
-</style>
-</head>
-<body>
-<script>const DATA = {{DATA}};</script>
-<script>const HIDDEN = new Set({{HIDDEN}});</script>
-<script>const AFFILIATIONS = {{AFFILIATIONS}};</script>
-<div id="app"></div>
-
-<script>
-{{SCRIPT}}
-</script>
-</body>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- The gitat:* comments are replaced when the report is generated (see web.rs). -->
+    <title>gitat — <!-- gitat:project --></title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    >
+    <!-- gitat:style -->
+  </head>
+  <body>
+    <div id="app"></div>
+    <!-- gitat:data -->
+    <!-- gitat:script -->
+  </body>
 </html>

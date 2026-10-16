@@ -166,32 +166,66 @@ fn build_web_data(stats: &RepoStats) -> WebData<'_> {
     }
 }
 
+/// Everything the page script needs, embedded as a single JSON block.
+#[derive(Serialize)]
+struct PageData<'a> {
+    project: &'a str,
+    hidden: &'a [String],
+    /// Lowercased keys so lookups against (lowercased) author emails are case-insensitive.
+    affiliations: HashMap<String, &'a String>,
+    data: WebData<'a>,
+}
+
+fn escape_html(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+fn render_html(
+    stats: &RepoStats,
+    project: &str,
+    hidden_charts: &[String],
+    affiliations: &HashMap<String, String>,
+) -> Result<String> {
+    let page = PageData {
+        project,
+        hidden: hidden_charts,
+        affiliations: affiliations
+            .iter()
+            .map(|(k, v)| (k.to_lowercase(), v))
+            .collect(),
+        data: build_web_data(stats),
+    };
+    // `<` only ever appears inside JSON strings, where `\u003c` means the same thing; escaping it
+    // keeps commit messages like "</script>" from closing the tag early.
+    let json = serde_json::to_string(&page)
+        .context("failed to serialize stats")?
+        .replace('<', "\\u003c");
+
+    // None of the inserted values can contain a `<!-- gitat:… -->` marker (they're either
+    // escaped or our own assets), so replacing them one after the other is safe.
+    Ok(INDEX
+        .replace("<!-- gitat:project -->", &escape_html(project))
+        .replace("<!-- gitat:style -->", &format!("<style>\n{STYLE}</style>"))
+        .replace(
+            "<!-- gitat:data -->",
+            &format!(r#"<script id="gitat-data" type="application/json">{json}</script>"#),
+        )
+        .replace(
+            "<!-- gitat:script -->",
+            &format!("<script>\n{SCRIPT}</script>"),
+        ))
+}
+
 pub fn export(
     stats: &RepoStats,
     project: &str,
     hidden_charts: &[String],
     affiliations: &HashMap<String, String>,
 ) -> Result<()> {
-    let data_json =
-        serde_json::to_string(&build_web_data(stats)).context("failed to serialize stats")?;
-    let hidden_json =
-        serde_json::to_string(hidden_charts).context("failed to serialize hidden charts")?;
-    // Lowercased so lookups against (lowercased) author emails are case-insensitive.
-    let affiliations: HashMap<String, &String> = affiliations
-        .iter()
-        .map(|(k, v)| (k.to_lowercase(), v))
-        .collect();
-    let affiliations_json =
-        serde_json::to_string(&affiliations).context("failed to serialize affiliations")?;
-
-    let html = INDEX
-        .replace("{{STYLE}}", STYLE)
-        .replace("{{SCRIPT}}", SCRIPT)
-        .replace("{{REPO_NAME}}", project)
-        .replace("{{DATA}}", &data_json)
-        .replace("{{HIDDEN}}", &hidden_json)
-        .replace("{{AFFILIATIONS}}", &affiliations_json);
-
+    let html = render_html(stats, project, hidden_charts, affiliations)?;
     let filename = report_filename(project, &stats.from_ref, &stats.to_ref, "html");
     fs::write(&filename, &html).context("failed to write HTML file")?;
 
@@ -252,5 +286,35 @@ mod tests {
         // Epoch-zero and far-future timestamps stay out of the date charts.
         assert_eq!(data.yearly_commit_counts, [(2024, 2)]);
         assert_eq!(data.latest_commit.map(|c| c.id).as_deref(), Some("bot"));
+    }
+
+    #[test]
+    fn html_cannot_be_broken_by_data() {
+        let evil = "</script><script>alert(1)</script> <!-- gitat:script --> `${x}`";
+        let mut c = commit("abc", 1, false, 1_704_067_200);
+        c.message = evil.to_string();
+        let stats = RepoStats {
+            commits: vec![c],
+            ..Default::default()
+        };
+        let project = "<b>gtk</b> & `co`";
+        let affiliations = HashMap::from([("Jane@X.org".to_string(), "Red Hat".to_string())]);
+        let html = render_html(&stats, project, &["pulse".to_string()], &affiliations).unwrap();
+
+        // Exactly our three tags: the JSON block and the page script can't be closed early,
+        // and no marker in the data got expanded into a second copy of the script.
+        assert_eq!(html.matches("<script").count(), 2);
+        assert_eq!(html.matches("</script>").count(), 2);
+        assert!(!html.contains("<!-- gitat:"));
+        assert!(html.contains("<title>gitat — &lt;b&gt;gtk&lt;/b&gt; &amp; `co`</title>"));
+
+        // The JSON block round-trips to the original values.
+        let start = html.find(r#"type="application/json">"#).unwrap() + 24;
+        let end = start + html[start..].find("</script>").unwrap();
+        let page: serde_json::Value = serde_json::from_str(&html[start..end]).unwrap();
+        assert_eq!(page["project"], project);
+        assert_eq!(page["hidden"][0], "pulse");
+        assert_eq!(page["affiliations"]["jane@x.org"], "Red Hat");
+        assert_eq!(page["data"]["top_impact_commits"][0]["message"], evil);
     }
 }

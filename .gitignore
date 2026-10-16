@@ -1,5 +1,6 @@
 /target
 *.json
+!/biome.json
 *.html
 !/src/web/*.html
 *.toml
