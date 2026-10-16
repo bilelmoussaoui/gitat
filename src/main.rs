@@ -84,9 +84,9 @@ fn default_project_name(path: &Path) -> String {
         .unwrap_or_else(|| "repository".to_string())
 }
 
-fn write_output(output: &Output, project: &str, stats: RepoStats, hide: &[String]) -> Result<()> {
+fn write_output(output: &Output, project: &str, stats: RepoStats, config: &Config) -> Result<()> {
     match output {
-        Output::Web => web::export(&stats, project, hide),
+        Output::Web => web::export(&stats, project, &config.hide, &config.affiliations),
         Output::Json => {
             let export = ProjectStats {
                 project: project.to_string(),
@@ -185,7 +185,7 @@ fn run_diff(
         .name
         .clone()
         .unwrap_or_else(|| default_project_name(&path));
-    write_output(&output, &project, stats, &config.hide)
+    write_output(&output, &project, stats, &config)
 }
 
 fn run_combine(files: Vec<PathBuf>, output: Output, config: Option<PathBuf>) -> Result<()> {
@@ -203,7 +203,7 @@ fn run_combine(files: Vec<PathBuf>, output: Output, config: Option<PathBuf>) -> 
         }
         None => "Combined".to_string(),
     };
-    write_output(&output, &project, stats, &config.hide)
+    write_output(&output, &project, stats, &config)
 }
 
 fn main() -> Result<()> {

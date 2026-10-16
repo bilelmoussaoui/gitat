@@ -59,7 +59,7 @@ function buildAffiliations() {
   const PERSONAL = new Set([
     'gmail.com','hotmail.com','live.com','outlook.com','yahoo.com','yahoo.fr',
     'yahoo.co.uk','protonmail.com','proton.me','icloud.com','me.com','mac.com',
-    'aol.com','zoho.com','yandex.ru','mail.ru','gmx.com','gmx.de','pm.me',
+    'googlemail.com','aol.com','zoho.com','yandex.ru','mail.ru','gmx.com','gmx.de','pm.me',
     'fastmail.com','users.noreply.github.com','localhost','posteo.net',
     'tutanota.com','tuta.io','mailbox.org','web.de','t-online.de',
     'free.fr','laposte.net','orange.fr','wanadoo.fr','seznam.cz',
@@ -68,16 +68,30 @@ function buildAffiliations() {
   const authors = humanAuthors();
   const total = authors.reduce((s, a) => s + a.commits, 0);
   const counts = {};
-  for (const a of authors) {
-    let aff = null;
-    for (const email of a.emails) {
+  // Config overrides: an exact email wins over a domain, which wins over the built-in tables.
+  // An empty company means "personal / unaffiliated".
+  const lookup = key => Object.hasOwn(AFFILIATIONS, key) ? AFFILIATIONS[key] : undefined;
+  const affiliationOf = emails => {
+    for (const email of emails) {
+      const override = lookup(email.toLowerCase());
+      if (override !== undefined) return override || null;
+    }
+    for (const email of emails) {
       const at = email.lastIndexOf('@');
       if (at < 0) continue;
       const domain = email.slice(at + 1).toLowerCase();
+      const override = lookup(domain);
+      if (override !== undefined) {
+        if (override) return override;
+        continue;
+      }
       if (PERSONAL.has(domain)) continue;
-      aff = KNOWN[domain] || domain;
-      break;
+      return KNOWN[domain] || domain;
     }
+    return null;
+  };
+  for (const a of authors) {
+    const aff = affiliationOf(a.emails);
     if (aff) counts[aff] = (counts[aff] || 0) + a.commits;
   }
   const threshold = total * 0.01;

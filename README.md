@@ -20,10 +20,16 @@ Optional `--config gitat.toml`:
 name = "GNOME"
 hide = ["bus_factor", "code_decay"]
 bots = ["damned-lies", "Translation Robot"]
+
+[affiliations]
+"mclasen@gmail.com" = "Red Hat"   # a specific address
+"gnome.org" = "GNOME Foundation"  # a whole domain
+"example.com" = ""                # treat as personal / unaffiliated
 ```
 
 - `name` — override the project name shown in the report / used in the output filename / JSON `project` field
 - `bots` — extra name/email substrings (case-insensitive) marking bot accounts, on top of the built-in detection (`[bot]`, dependabot, renovate, marge-bot, bors, any name or email word `bot`/`robot`, …). Bots are left out of Top Contributors, Affiliations, the contributor count, Bus Factor and Highest Impact Commits, and counted under Automated Bots instead
+- `affiliations` — company per email address or email domain (case-insensitive) for the Affiliations chart, overriding the built-in domain table. An address match wins over a domain match; an empty company marks it as personal. Personal webmail domains (gmail.com, googlemail.com, …) aren't counted as a company unless mapped here
 - `hide` — chart keys to omit from the web report:
 
 | key | chart |

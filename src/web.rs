@@ -166,18 +166,31 @@ fn build_web_data(stats: &RepoStats) -> WebData<'_> {
     }
 }
 
-pub fn export(stats: &RepoStats, project: &str, hidden_charts: &[String]) -> Result<()> {
+pub fn export(
+    stats: &RepoStats,
+    project: &str,
+    hidden_charts: &[String],
+    affiliations: &HashMap<String, String>,
+) -> Result<()> {
     let data_json =
         serde_json::to_string(&build_web_data(stats)).context("failed to serialize stats")?;
     let hidden_json =
         serde_json::to_string(hidden_charts).context("failed to serialize hidden charts")?;
+    // Lowercased so lookups against (lowercased) author emails are case-insensitive.
+    let affiliations: HashMap<String, &String> = affiliations
+        .iter()
+        .map(|(k, v)| (k.to_lowercase(), v))
+        .collect();
+    let affiliations_json =
+        serde_json::to_string(&affiliations).context("failed to serialize affiliations")?;
 
     let html = INDEX
         .replace("{{STYLE}}", STYLE)
         .replace("{{SCRIPT}}", SCRIPT)
         .replace("{{REPO_NAME}}", project)
         .replace("{{DATA}}", &data_json)
-        .replace("{{HIDDEN}}", &hidden_json);
+        .replace("{{HIDDEN}}", &hidden_json)
+        .replace("{{AFFILIATIONS}}", &affiliations_json);
 
     let filename = report_filename(project, &stats.from_ref, &stats.to_ref, "html");
     fs::write(&filename, &html).context("failed to write HTML file")?;
